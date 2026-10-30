@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+
+# Testing & Coverage
+coverage/
+
+# Next.js & Build Outputs
+.next/
+out/
+build/
+dist/
+
+# Environment Variables
+.env
+.env*.local
+!.env.example
+
+# Vercel & Cloud
+.vercel/
+
+# TypeScript & Next generated files
+*.tsbuildinfo
+next-env.d.ts
+
+# OS & Logs
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.pem
+
+# IDEs & Editor configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AI Agents & Scaffolding Tooling
+.agent/
+.agents/
+.antigravity/
+.gemini/
+.claude/
+.cursor/
+.windsurf/
+brain/
+artifacts/
+*.md.tmp
+task.md
+implementation_plan.md
+walkthrough.md
