@@ -8,6 +8,7 @@ import {
   GeminiQuotaExceededError,
   getGeminiModel,
   sanitizeErrorMessage,
+  getGeminiClient,
 } from '@/lib/ai/gemini';
 import { checkRateLimit } from '@/lib/ai/rate-limit';
 
@@ -170,6 +171,18 @@ export async function POST(req: NextRequest) {
     }
 
     const { question, language, metrics, stream = true } = parseResult.data;
+
+    try {
+      const client = getGeminiClient();
+      const list = await client.models.list();
+      const availableModels: string[] = [];
+      for await (const m of list) {
+        if (m.name) availableModels.push(m.name);
+      }
+      console.log('[Advisor DEBUG] Available models in Google API:', availableModels);
+    } catch (e) {
+      console.warn('[Advisor DEBUG] Could not list models:', sanitizeErrorMessage(e));
+    }
 
     // 3. Build system instruction and contextual user prompt
     const langLabel =
