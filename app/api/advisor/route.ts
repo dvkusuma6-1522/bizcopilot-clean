@@ -232,7 +232,7 @@ ${question}`;
           model: getGeminiModel(),
           systemInstruction,
           temperature: 0.2,
-          timeoutMs: 30000,
+          timeoutMs: 25000,
         });
 
         const encoder = new TextEncoder();

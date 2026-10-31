@@ -64,19 +64,19 @@ export function isRetryableError(err: unknown): boolean {
  * Known fallback models in preference order if the configured model is unavailable (e.g. 404 or 503).
  */
 export const FALLBACK_MODELS = [
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
   'gemini-3.8-flash',
+  'gemini-1.5-flash',
+  'gemini-2.0-flash',
   'gemini-2.5-flash',
 ];
 
 /**
  * Returns the configured Gemini model name.
- * Uses process.env.GEMINI_MODEL if specified; otherwise defaults to gemini-2.0-flash
- * for production reliability (falls back through FALLBACK_MODELS if unavailable).
+ * Uses process.env.GEMINI_MODEL if specified; otherwise defaults to gemini-3.8-flash
+ * since Google has deprecated gemini-2.5-flash and gemini-2.0-flash for new users.
  */
 export function getGeminiModel(): string {
-  return process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  return process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 }
 
 /**
@@ -330,7 +330,7 @@ export async function* generateTextStream(
   const client = getGeminiClient();
   const initialModel = options?.model || getGeminiModel();
 
-  const timeoutMs = options?.timeoutMs || 30000;
+  const timeoutMs = options?.timeoutMs || 25000;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
