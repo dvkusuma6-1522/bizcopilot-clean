@@ -62,21 +62,23 @@ export function isRetryableError(err: unknown): boolean {
 
 /**
  * Known fallback models in preference order if the configured model is unavailable (e.g. 404 or 503).
+ * Verified against Google ModelService.ListModels.
  */
 export const FALLBACK_MODELS = [
+  'gemini-flash-latest',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash-lite',
   'gemini-3.8-flash',
-  'gemini-1.5-flash',
-  'gemini-2.0-flash',
   'gemini-2.5-flash',
 ];
 
 /**
  * Returns the configured Gemini model name.
- * Uses process.env.GEMINI_MODEL if specified; otherwise defaults to gemini-3.8-flash
- * since Google has deprecated gemini-2.5-flash and gemini-2.0-flash for new users.
+ * Uses process.env.GEMINI_MODEL if specified; otherwise defaults to gemini-flash-latest
+ * (Google canonical alias pointing to the latest stable Flash model).
  */
 export function getGeminiModel(): string {
-  return process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  return process.env.GEMINI_MODEL || 'gemini-flash-latest';
 }
 
 /**
