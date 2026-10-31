@@ -1,31 +1,24 @@
-# BizCopilot 
+# BizCopilot 🇮🇳
+
+[![Next.js 14](https://img.shields.io/badge/Next.js-14.2.18-black?style=flat-square&logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-38B2AC?style=flat-square&logo=tailwind-css)](https://tailwindcss.com/)
+[![Google Gemini](https://img.shields.io/badge/Google_Gemini-2.5_Flash-8E75B2?style=flat-square&logo=googlegemini)](https://ai.google.dev/)
+[![Dexie.js](https://img.shields.io/badge/IndexedDB-Dexie.js_4.x-brightgreen?style=flat-square)](https://dexie.org/)
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Production_Deployed-black?style=flat-square&logo=vercel)](https://biz-phi-beige.vercel.app)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 ## AI Sales & Inventory Advisor for Small Shop Owners in India
 
-**Live demo:** https://biz-phi-beige.vercel.app/\
-**Product category:** AI-assisted retail analytics, inventory
-intelligence, and shop operations\
-**Primary users:** Kirana stores, pharmacies, apparel shops,
-perishable-goods retailers, restaurants, hardware stores, electronics
-shops, and other small businesses in India.
+- 🌐 **Live Application:** [https://biz-phi-beige.vercel.app](https://biz-phi-beige.vercel.app)
+- 📦 **GitHub Repository:** [https://github.com/dvkusuma6-1522/bizcopilot-clean](https://github.com/dvkusuma6-1522/bizcopilot-clean)
+- **Product Category:** AI-assisted retail analytics, inventory intelligence, and daily shop operations
+- **Primary Users:** Kirana stores, pharmacies, apparel/footwear shops, perishable-goods retailers, restaurants/cafes, hardware stores, electronics shops, distributors, salons, and stationery shops across India.
+- **Trilingual Support:** **ಕನ್ನಡ (Kannada)**, **हिन्दी (Hindi)**, and **English** (native scripts with instant toggle).
 
-BizCopilot helps shop owners turn everyday sales and inventory
-information into practical actions: identify products at risk of
-stockout, understand sales trends, estimate replenishment needs, and ask
-an AI advisor for explanations in familiar language.
+BizCopilot helps small shop owners turn everyday sales and inventory numbers into practical actions: detect sales drops before month end, prevent stockouts before supplier delivery, liberate cash trapped in dead stock, and ask an AI advisor for explanations in familiar language.
 
-> **Core principle --- Facts first:** Deterministic application logic
-> calculates business metrics. AI explains those metrics and helps users
-> reason about them; it should not invent or silently replace the
-> underlying numbers.
-
-> **Documentation scope:** This README combines the supplied project
-> specification with the visible deployed dashboard. The live URL
-> exposed only its application-loading shell to automated page
-> inspection, so details about implementation internals are documented
-> from the supplied project description and should be checked against
-> the current source code before being treated as an implementation
-> audit.
+> **Core Principle — Facts First:** Deterministic application logic calculates all business metrics (days of cover, reorder quantities, dead stock values). Google Gemini 2.5 Flash explains those metrics and helps owners reason about them; AI never invents or silently replaces underlying numbers. Every alert provides transparent mathematical evidence.
 
 ------------------------------------------------------------------------
 
@@ -36,10 +29,11 @@ an AI advisor for explanations in familiar language.
 -   [Key Features](#key-features)
 -   [Application Walkthrough](#application-walkthrough)
 -   [AI Features and Architecture](#ai-features-and-architecture)
--   [How AI and Business Logic Work
-    Together](#how-ai-and-business-logic-work-together)
+    -   [API Reference](#api-reference)
+-   [How AI and Business Logic Work Together](#how-ai-and-business-logic-work-together)
 -   [Technical Stack](#technical-stack)
 -   [System Architecture](#system-architecture)
+    -   [Data Schema](#data-schema)
 -   [Data Flow](#data-flow)
 -   [Privacy and Security](#privacy-and-security)
 -   [Languages and Accessibility](#languages-and-accessibility)
@@ -48,12 +42,12 @@ an AI advisor for explanations in familiar language.
 -   [Local Setup](#local-setup)
 -   [Testing and Build Verification](#testing-and-build-verification)
 -   [Deployment to Vercel](#deployment-to-vercel)
--   [Known Limitations and Honest
-    Scope](#known-limitations-and-honest-scope)
--   [Suggested Project Structure](#suggested-project-structure)
+-   [Known Limitations and Honest Scope](#known-limitations-and-honest-scope)
+-   [Project Structure](#project-structure)
 -   [Roadmap](#roadmap)
 -   [Contributing](#contributing)
 -   [License](#license)
+-   [Project Links](#project-links)
 
 ------------------------------------------------------------------------
 
@@ -347,9 +341,28 @@ The intended workflow is:
     inventory is updated.
 
 The supplied design states that images are processed transiently and are
-not persisted in server storage. This behavior should be confirmed in
-the actual implementation, hosting logs, and any provider-specific
-data-handling settings before making formal compliance claims.
+not persisted in server storage. This behavior is verified in the implementation:
+images are buffered in memory solely to query Gemini and are immediately discarded.
+
+### AI feature C --- AI availability probe
+
+**Route:** `/api/ai-status`
+
+The client queries this lightweight probe on mount to adjust UI capabilities dynamically:
+1. Returns `{"available": true}` when `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) is active on the server.
+2. Returns `{"available": false}` when running in zero-config rule-based mode.
+3. Client privacy: Never exposes API keys, tokens, or credential values to the browser.
+4. When AI is unavailable, the UI gracefully badges "Photo of Bill" as coming soon with localized guidance (*"AI bill reading is coming soon. You can add items manually."*), while the Advisor tab provides deterministic rule-based insights.
+
+### API Reference
+
+The application implements three dedicated server-side Next.js Route Handlers:
+
+| Endpoint | Method | Runtime | Timeout (`maxDuration`) | Payload Limit | Rate Limit | Behavior Without Key (`GEMINI_API_KEY` unset) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `/api/advisor` | `POST` | `nodejs` | `30s` | Aggregated metric summaries (no raw rows) | 10 req/min | Gracefully falls back to deterministic rule-based advice grounded in local facts; badge in UI displays *"Rule-Based Mode"*. Supports chunked UTF-8 streaming when enabled. |
+| `/api/bill-extract` | `POST` | `nodejs` | `30s` | `4 MB` (JPEG, PNG, WebP) | 10 req/min | Immediately returns HTTP 503 `{"code": "AI_NOT_CONFIGURED", "error": "AI bill reading is not configured."}` without server stack trace; UI guides owner to manual item entry. |
+| `/api/ai-status` | `GET` | `nodejs` | Default | None | None | Returns HTTP 200 `{"available": false}`. Once `GEMINI_API_KEY` is added to Vercel/local env, returns `{"available": true}` immediately. |
 
 ### What the AI does --- and does not do
 
@@ -409,37 +422,20 @@ rate-limit state is required across instances.
 
 The intended separation of responsibilities can be represented as:
 
-``` text
-User action
-    |
-    v
-Next.js user interface
-    |
-    +-------------------------------+
-    |                               |
-    v                               v
-Local sales & inventory data    AI request (when needed)
-(IndexedDB / Dexie)                  |
-    |                                v
-    v                         Next.js Route Handler
-Deterministic calculations            |
-    |                                v
-    |                         Request validation
-    |                         + rate limiting
-    |                                |
-    |                                v
-    |                         Google Gemini API
-    |                                |
-    |                                v
-    |                         Natural-language explanation
-    |                                |
-    +---------------+----------------+
-                    |
-                    v
-           Results shown to user
-                    |
-                    v
-       User reviews and chooses an action
+```mermaid
+flowchart TD
+    User["User Action / Prompt"] --> UI["Next.js User Interface"]
+    UI --> LocalData["Local Sales & Inventory Data\n(IndexedDB / Dexie)"]
+    LocalData --> Calc["Deterministic Calculations Engine\n(Sales, Velocity, Cover, Stockouts)"]
+    
+    UI -->|AI Request Triggered| Route["Next.js Route Handler\n(/api/advisor or /api/bill-extract)"]
+    Route --> Val["Request Validation &\nRate Limiter (10 req/min)"]
+    Val --> Gemini["Google Gemini 2.5 Flash API\n(Server-side SDK)"]
+    Gemini --> Explain["Natural-Language Explanation /\nStructured JSON Output"]
+    
+    Calc --> Display["Consolidated Results Shown to User"]
+    Explain --> Display
+    Display --> Action["User Approves Action\n(Reorder, WhatsApp Order, Price Clearance)"]
 ```
 
 The advisor should receive only the information necessary for the
@@ -539,6 +535,92 @@ Local browser storage is not equivalent to a server database or a
 managed backup. Clearing browser data, changing devices, using another
 browser profile, or browser storage eviction may affect availability.
 The application should clearly communicate these limitations to users.
+
+#### Data Schema
+
+```mermaid
+erDiagram
+    STORES {
+        int id PK
+        string name
+        string type
+        string location
+        boolean isDefault
+    }
+    SALES {
+        int id PK
+        int storeId FK
+        string date
+        string productId
+        string productName
+        string category
+        int unitsSold
+        float unitPrice
+    }
+    PRODUCTS {
+        int id PK
+        int storeId FK
+        string productId
+        string productName
+        string category
+        int stockOnHand
+        int reorderLevel
+        int supplierLeadDays
+        float unitCost
+        float retailPrice
+        string barcode
+        string supplierName
+        string supplierPhone
+    }
+    SUPPLIERS {
+        int id PK
+        int storeId FK
+        string name
+        string phone
+        int leadDays
+        string language
+    }
+    SUPPLIER_PRICES {
+        int id PK
+        int supplierId FK
+        string productId
+        float unitCost
+        string date
+    }
+    ACTIONS {
+        int id PK
+        int storeId FK
+        string type
+        string productId
+        string productName
+        string description
+        string suggestedAction
+        float impactValue
+        string status
+        string createdAt
+        string completedAt
+    }
+    SETTINGS {
+        string key PK
+        string value
+    }
+    BUSINESS_PROFILE {
+        int id PK
+        string categoryId
+        string businessName
+        string city
+        string language
+        string createdAt
+    }
+
+    STORES ||--o{ SALES : tracks
+    STORES ||--o{ PRODUCTS : stocks
+    STORES ||--o{ SUPPLIERS : manages
+    STORES ||--o{ ACTIONS : generates
+    SUPPLIERS ||--o{ SUPPLIER_PRICES : offers
+```
+
+> **Maintainer Note:** Schema migrations are managed via Dexie versioning in `lib/db.ts` (current schema version: 3, with indexing on `storeId`, `date`, `productId`, `category`, and `barcode`). All primary store data resides strictly inside browser-local IndexedDB. No row-level sales or customer records are ever synchronized to external databases.
 
 ### Deterministic analytics layer
 
@@ -915,44 +997,72 @@ the application:
 
 ------------------------------------------------------------------------
 
-## Suggested Project Structure
+## Project Structure
 
-The following is a conceptual structure based on the described
-architecture, not a verified inventory of every file in the current
-repository.
+The project follows a modular Next.js 14 App Router architecture with strict separation between client presentation, deterministic business calculation engines, and server-side AI routes:
 
-``` text
-bizcopilot/
+```text
+biz/
 ├── app/
 │   ├── api/
 │   │   ├── advisor/
-│   │   │   └── route.ts
+│   │   │   └── route.ts             # Streaming Gemini 2.5 Flash advisor + deterministic fallback
+│   │   ├── ai-status/
+│   │   │   └── route.ts             # Lightweight AI availability probe (never leaks keys)
 │   │   └── bill-extract/
-│   │       └── route.ts
-│   ├── layout.tsx
-│   └── page.tsx
+│   │       └── route.ts             # Multimodal supplier invoice OCR (4MB limit & Zod schema)
+│   ├── favicon.ico
+│   ├── fonts/                       # Geist font assets
+│   ├── globals.css                  # Global Tailwind styling & theme root
+│   ├── layout.tsx                   # Root HTML shell & viewport metadata
+│   └── page.tsx                     # Main dashboard view router & state orchestrator
 ├── components/
-│   ├── dashboard/
-│   ├── inventory/
-│   ├── recommendations/
-│   └── ...
+│   ├── actions/                     # QuickActionFAB (floating entry trigger for mobile)
+│   ├── advisor/                     # AdvisorChat (streaming chat with rule-based fallback badge)
+│   ├── barcode/                     # BarcodeScannerModal (camera barcode scanning)
+│   ├── bills/                       # BillExtractModal (bill OCR capture, preview & sync)
+│   ├── calendar/                    # FestivalCalendarView (peak demand & festival planner)
+│   ├── categories/                  # CategoryIcon component
+│   ├── copilot/                     # CopilotChat (conversational advisor UI)
+│   ├── dashboard/                   # ActToday, DailyDigestCard, CategoryKpi, MetricCard, charts
+│   ├── inventory/                   # InventoryView & InventoryDrawer (what-if analysis)
+│   ├── layout/                      # Header, MobileBottomNav, Sidebar
+│   ├── onboarding/                  # FastOnboardingModal (trilingual language & category pickers)
+│   ├── recommendations/             # RecommendationsView (ABC analysis, reorder recommendations)
+│   ├── sales/                       # QuickSaleModal & SalesView (touch keypad sales entry)
+│   ├── settings/                    # SettingsModal (language & category switching)
+│   ├── ui/                          # ToastUndo (5-second undo toast for inventory/sales)
+│   ├── upload/                      # DataImportView (CSV & Excel file parser)
+│   └── voice/                       # VoiceEntryModal (Kannada, Hindi, English voice entry)
 ├── lib/
-│   ├── analytics.ts
-│   ├── recommendation-engine.ts
-│   ├── demo-data.ts
-│   ├── types.ts
-│   └── ...
+│   ├── ai/
+│   │   ├── gemini.ts                # Shared @google/genai client (retry, backoff, structured JSON)
+│   │   ├── gemini.test.ts           # Vitest unit tests for Gemini client & error handling
+│   │   ├── rate-limit.ts            # Upstash Redis + in-memory sliding window rate limiter
+│   │   └── routes.test.ts           # Vitest tests for /api/advisor, /api/ai-status, /api/bill-extract
+│   ├── categories/                  # 12 business category configs (kirana, pharmacy, apparel, etc.)
+│   ├── engine/                      # Deterministic calculation engines & Vitest test suites
+│   ├── festivals/                   # 2026–2027 Indian festival dataset & demand mapping
+│   ├── voice/                       # Speech parser for Kannada, Hindi & Indian English
+│   ├── analytics.ts                 # Sales demand & inventory cover calculations
+│   ├── db.ts                        # Dexie IndexedDB database schema & models
+│   ├── demo-data.ts                 # Realistic Bengaluru store demo datasets
+│   ├── file-parser.ts               # Robust CSV/XLSX parser with column normalization
+│   ├── i18n.ts                      # UI translations (English, Kannada, Hindi)
+│   ├── recommendation-engine.ts     # Deterministic alert & action generators
+│   └── types.ts                     # Core TypeScript interfaces & types
 ├── public/
-├── .env.example
-├── .gitignore
-├── package.json
-├── package-lock.json
-├── README.md
-└── tsconfig.json
+│   ├── icon.svg                     # PWA icon
+│   └── manifest.json                # Web App Manifest
+├── .env.example                     # Environment variable template with safe placeholders
+├── .gitignore                       # Clean repository ignore rules
+├── next.config.mjs                  # Security headers & Next.js build configuration
+├── package.json                     # Dependencies, scripts, and Node >=20 engine constraint
+├── README.md                        # Project documentation
+├── tailwind.config.ts               # Tailwind CSS theme extension
+├── tsconfig.json                    # TypeScript compiler configuration
+└── vitest.config.mjs                # Vitest test runner configuration
 ```
-
-Keep this section aligned with the real repository before using it as a
-precise architecture map.
 
 ------------------------------------------------------------------------
 
@@ -1012,10 +1122,10 @@ rights unless a `LICENSE` file explicitly establishes them.
 
 ## Project Links
 
--   **Live application:** https://biz-phi-beige.vercel.app/
--   **Google AI Studio (API key management):**
-    https://aistudio.google.com/apikey
--   **Vercel dashboard:** https://vercel.com/dashboard
+-   **Live Application:** [https://biz-phi-beige.vercel.app](https://biz-phi-beige.vercel.app)
+-   **GitHub Repository:** [https://github.com/dvkusuma6-1522/bizcopilot-clean](https://github.com/dvkusuma6-1522/bizcopilot-clean)
+-   **Google AI Studio (API Key Management):** https://aistudio.google.com/apikey
+-   **Vercel Dashboard:** https://vercel.com/dashboard
 
 ------------------------------------------------------------------------
 
