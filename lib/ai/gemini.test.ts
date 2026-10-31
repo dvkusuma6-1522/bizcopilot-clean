@@ -133,7 +133,7 @@ describe('lib/ai/gemini', () => {
     it('returns configured or default model from getGeminiModel', () => {
       expect(getGeminiModel()).toBe('gemini-2.5-flash');
       delete process.env.GEMINI_MODEL;
-      expect(getGeminiModel()).toBe('gemini-3.8-flash');
+      expect(getGeminiModel()).toBe('gemini-2.0-flash');
     });
 
     it('detects model unavailable errors and extracts recommendations', () => {

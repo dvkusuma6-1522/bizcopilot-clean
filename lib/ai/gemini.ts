@@ -61,26 +61,26 @@ export function isRetryableError(err: unknown): boolean {
 }
 
 /**
- * Known fallback models in preference order if the configured model is unavailable (e.g. 404).
+ * Known fallback models in preference order if the configured model is unavailable (e.g. 404 or 503).
  */
 export const FALLBACK_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-2.5-flash',
   'gemini-2.0-flash',
   'gemini-1.5-flash',
+  'gemini-3.8-flash',
+  'gemini-2.5-flash',
 ];
 
 /**
  * Returns the configured Gemini model name.
- * Uses process.env.GEMINI_MODEL if specified; otherwise defaults to gemini-3.8-flash
- * since Google has deprecated gemini-2.5-flash for new users.
+ * Uses process.env.GEMINI_MODEL if specified; otherwise defaults to gemini-2.0-flash
+ * for production reliability (falls back through FALLBACK_MODELS if unavailable).
  */
 export function getGeminiModel(): string {
-  return process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  return process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 }
 
 /**
- * Check if an error indicates that the requested model is unavailable, not found, or deprecated.
+ * Check if an error indicates that the requested model is unavailable, not found, deprecated, or overloaded.
  */
 export function isModelUnavailableError(err: unknown): boolean {
   if (!err) return false;
@@ -90,7 +90,8 @@ export function isModelUnavailableError(err: unknown): boolean {
     (err as { status?: number; code?: number })?.code;
   return (
     status === 404 ||
-    /404|NOT_FOUND|no longer available|is not found|unsupported model|not supported/i.test(msg)
+    status === 503 ||
+    /404|503|NOT_FOUND|UNAVAILABLE|no longer available|is not found|unsupported model|not supported|high demand|overloaded/i.test(msg)
   );
 }
 
@@ -118,32 +119,46 @@ export function sanitizeErrorMessage(err: unknown): string {
 }
 
 /**
- * Helper to execute a model operation with automatic model fallback if 404/unavailable.
+ * Helper to execute a model operation with automatic multi-model fallback if 404/503/unavailable.
  */
 async function executeWithModelFallback<T>(
   preferredModel: string,
   operation: (model: string) => Promise<T>
 ): Promise<T> {
-  try {
-    return await operation(preferredModel);
-  } catch (err) {
-    if (isModelUnavailableError(err)) {
-      const recommended = extractRecommendedModel(err);
-      const candidates = [
-        ...(recommended ? [recommended] : []),
-        ...FALLBACK_MODELS,
-      ].filter((m) => m !== preferredModel);
+  const modelsToTry = [
+    preferredModel,
+    ...FALLBACK_MODELS.filter((m) => m !== preferredModel),
+  ];
 
-      const nextModel = candidates[0];
-      if (nextModel) {
-        console.warn(
-          `[Gemini] Model "${preferredModel}" is unavailable (${sanitizeErrorMessage(err)}). Retrying with fallback model "${nextModel}".`
-        );
-        return await operation(nextModel);
+  let lastError: unknown;
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const currentModel = modelsToTry[i];
+    try {
+      return await operation(currentModel);
+    } catch (err) {
+      lastError = err;
+      if (isModelUnavailableError(err) || isRetryableError(err)) {
+        const recommended = extractRecommendedModel(err);
+        if (recommended && recommended !== currentModel) {
+          const existingIdx = modelsToTry.indexOf(recommended);
+          if (existingIdx > i) {
+            modelsToTry.splice(existingIdx, 1);
+          }
+          modelsToTry.splice(i + 1, 0, recommended);
+        }
+
+        if (i < modelsToTry.length - 1) {
+          console.warn(
+            `[Gemini] Model "${currentModel}" unavailable/overloaded (${sanitizeErrorMessage(err)}). Retrying with candidate "${modelsToTry[i + 1]}".`
+          );
+          continue;
+        }
       }
+      throw err;
     }
-    throw err;
   }
+
+  throw lastError;
 }
 
 /**
