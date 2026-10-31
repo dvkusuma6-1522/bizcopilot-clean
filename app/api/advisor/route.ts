@@ -7,6 +7,7 @@ import {
   GeminiKeyMissingError,
   GeminiQuotaExceededError,
   getGeminiModel,
+  sanitizeErrorMessage,
 } from '@/lib/ai/gemini';
 import { checkRateLimit } from '@/lib/ai/rate-limit';
 
@@ -243,6 +244,9 @@ ${question}`;
               }
               controller.close();
             } catch (streamErr) {
+              const sanitizedMsg = sanitizeErrorMessage(streamErr);
+              console.error('[Advisor] Stream generation error:', sanitizedMsg);
+
               if (isQuotaExceededError(streamErr) || streamErr instanceof GeminiQuotaExceededError) {
                 controller.enqueue(
                   encoder.encode(
@@ -258,7 +262,14 @@ ${question}`;
                   )
                 );
               } else {
-                controller.enqueue(encoder.encode('\n\n[Error generating full advice. Please try again.]'));
+                controller.enqueue(
+                  encoder.encode(
+                    '\n\n[AI_ERROR: ' +
+                      (sanitizedMsg.length > 120 ? sanitizedMsg.slice(0, 120) + '...' : sanitizedMsg) +
+                      '. Showing verified store advice.]\n\n' +
+                      buildDeterministicAdvice(parseResult.data)
+                  )
+                );
               }
               controller.close();
             }
@@ -273,7 +284,12 @@ ${question}`;
           },
         });
       } catch (streamInitErr) {
-        if (streamInitErr instanceof GeminiKeyMissingError) {
+        console.error('[Advisor] Stream init error:', sanitizeErrorMessage(streamInitErr));
+        if (
+          streamInitErr instanceof GeminiKeyMissingError ||
+          isQuotaExceededError(streamInitErr) ||
+          streamInitErr instanceof GeminiQuotaExceededError
+        ) {
           return new Response(buildDeterministicAdvice(parseResult.data), {
             headers: {
               'Content-Type': 'text/plain; charset=utf-8',
@@ -300,6 +316,8 @@ ${question}`;
         model: getGeminiModel(),
       });
     } catch (nonStreamErr) {
+      const sanitized = sanitizeErrorMessage(nonStreamErr);
+      console.warn('[Advisor] Non-streaming error, evaluating fallback:', sanitized);
       if (
         nonStreamErr instanceof GeminiKeyMissingError ||
         isQuotaExceededError(nonStreamErr) ||
@@ -315,13 +333,14 @@ ${question}`;
       throw nonStreamErr;
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Unknown advisor error';
+    const msg = sanitizeErrorMessage(err);
     console.error('Advisor route error:', msg);
     return NextResponse.json(
       {
         success: false,
         error: 'Advisor service encountered an error. Please try again.',
         errorCode: 'ADVISOR_ERROR',
+        details: process.env.NODE_ENV === 'development' ? msg : undefined,
       },
       { status: 500 }
     );

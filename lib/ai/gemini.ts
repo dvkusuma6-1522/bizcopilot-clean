@@ -61,10 +61,89 @@ export function isRetryableError(err: unknown): boolean {
 }
 
 /**
- * Returns the configured Gemini model name (default: gemini-2.5-flash).
+ * Known fallback models in preference order if the configured model is unavailable (e.g. 404).
+ */
+export const FALLBACK_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+];
+
+/**
+ * Returns the configured Gemini model name.
+ * Uses process.env.GEMINI_MODEL if specified; otherwise defaults to gemini-3.8-flash
+ * since Google has deprecated gemini-2.5-flash for new users.
  */
 export function getGeminiModel(): string {
-  return process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  return process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+}
+
+/**
+ * Check if an error indicates that the requested model is unavailable, not found, or deprecated.
+ */
+export function isModelUnavailableError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const status =
+    (err as { status?: number; code?: number })?.status ||
+    (err as { status?: number; code?: number })?.code;
+  return (
+    status === 404 ||
+    /404|NOT_FOUND|no longer available|is not found|unsupported model|not supported/i.test(msg)
+  );
+}
+
+/**
+ * Extract a recommended model from an error message if suggested by Google Gemini API.
+ * e.g. "Please update your code to use models/gemini-3.8-flash for the latest features..."
+ */
+export function extractRecommendedModel(err: unknown): string | null {
+  if (!err) return null;
+  const msg = err instanceof Error ? err.message : String(err);
+  const match = msg.match(/use\s+(?:models\/)?([a-zA-Z0-9.\-_]+)\s+for/i);
+  return match ? match[1] : null;
+}
+
+/**
+ * Sanitize error message to ensure no API keys or credentials can be leaked.
+ */
+export function sanitizeErrorMessage(err: unknown): string {
+  if (!err) return 'Unknown error';
+  let msg = err instanceof Error ? err.message : String(err);
+  msg = msg.replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_KEY]');
+  msg = msg.replace(/key=[^&\s]+/gi, 'key=[REDACTED]');
+  msg = msg.replace(/bearer\s+[a-zA-Z0-9.\-_]+/gi, 'Bearer [REDACTED]');
+  return msg;
+}
+
+/**
+ * Helper to execute a model operation with automatic model fallback if 404/unavailable.
+ */
+async function executeWithModelFallback<T>(
+  preferredModel: string,
+  operation: (model: string) => Promise<T>
+): Promise<T> {
+  try {
+    return await operation(preferredModel);
+  } catch (err) {
+    if (isModelUnavailableError(err)) {
+      const recommended = extractRecommendedModel(err);
+      const candidates = [
+        ...(recommended ? [recommended] : []),
+        ...FALLBACK_MODELS,
+      ].filter((m) => m !== preferredModel);
+
+      const nextModel = candidates[0];
+      if (nextModel) {
+        console.warn(
+          `[Gemini] Model "${preferredModel}" is unavailable (${sanitizeErrorMessage(err)}). Retrying with fallback model "${nextModel}".`
+        );
+        return await operation(nextModel);
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -137,7 +216,7 @@ export async function generateText(
 ): Promise<string> {
   assertServerOnly();
   const client = getGeminiClient();
-  const model = options?.model || getGeminiModel();
+  const initialModel = options?.model || getGeminiModel();
 
   const timeoutMs = options?.timeoutMs || 25000;
   const controller = new AbortController();
@@ -148,15 +227,17 @@ export async function generateText(
     : controller.signal;
 
   try {
-    const response = await withRetry(async () => {
-      return await client.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          systemInstruction: options?.systemInstruction,
-          temperature: options?.temperature ?? 0.2,
-          abortSignal: signal,
-        },
+    const response = await executeWithModelFallback(initialModel, async (modelToUse) => {
+      return await withRetry(async () => {
+        return await client.models.generateContent({
+          model: modelToUse,
+          contents: prompt,
+          config: {
+            systemInstruction: options?.systemInstruction,
+            temperature: options?.temperature ?? 0.2,
+            abortSignal: signal,
+          },
+        });
       });
     });
 
@@ -181,7 +262,7 @@ export async function generateJson<T>(
 ): Promise<T> {
   assertServerOnly();
   const client = getGeminiClient();
-  const model = options?.model || getGeminiModel();
+  const initialModel = options?.model || getGeminiModel();
 
   const jsonSchema = z.toJSONSchema(schema);
   const timeoutMs = options?.timeoutMs || 25000;
@@ -193,17 +274,19 @@ export async function generateJson<T>(
     : controller.signal;
 
   try {
-    const response = await withRetry(async () => {
-      return await client.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseJsonSchema: jsonSchema,
-          systemInstruction: options?.systemInstruction,
-          temperature: options?.temperature ?? 0.1,
-          abortSignal: signal,
-        },
+    const response = await executeWithModelFallback(initialModel, async (modelToUse) => {
+      return await withRetry(async () => {
+        return await client.models.generateContent({
+          model: modelToUse,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: jsonSchema,
+            systemInstruction: options?.systemInstruction,
+            temperature: options?.temperature ?? 0.1,
+            abortSignal: signal,
+          },
+        });
       });
     });
 
@@ -230,7 +313,7 @@ export async function* generateTextStream(
 ): AsyncGenerator<string, void, unknown> {
   assertServerOnly();
   const client = getGeminiClient();
-  const model = options?.model || getGeminiModel();
+  const initialModel = options?.model || getGeminiModel();
 
   const timeoutMs = options?.timeoutMs || 30000;
   const controller = new AbortController();
@@ -241,15 +324,17 @@ export async function* generateTextStream(
     : controller.signal;
 
   try {
-    const stream = await withRetry(async () => {
-      return await client.models.generateContentStream({
-        model,
-        contents: prompt,
-        config: {
-          systemInstruction: options?.systemInstruction,
-          temperature: options?.temperature ?? 0.2,
-          abortSignal: signal,
-        },
+    const stream = await executeWithModelFallback(initialModel, async (modelToUse) => {
+      return await withRetry(async () => {
+        return await client.models.generateContentStream({
+          model: modelToUse,
+          contents: prompt,
+          config: {
+            systemInstruction: options?.systemInstruction,
+            temperature: options?.temperature ?? 0.2,
+            abortSignal: signal,
+          },
+        });
       });
     });
 

@@ -7,6 +7,10 @@ import {
   isQuotaExceededError,
   GeminiQuotaExceededError,
   GeminiKeyMissingError,
+  isModelUnavailableError,
+  extractRecommendedModel,
+  sanitizeErrorMessage,
+  getGeminiModel,
 } from './gemini';
 import { checkRateLimit, resetMemoryRateLimiter } from './rate-limit';
 
@@ -124,6 +128,46 @@ describe('lib/ai/gemini', () => {
       const text = await generateText('test prompt');
       expect(text).toBe('Recovered response');
       expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns configured or default model from getGeminiModel', () => {
+      expect(getGeminiModel()).toBe('gemini-2.5-flash');
+      delete process.env.GEMINI_MODEL;
+      expect(getGeminiModel()).toBe('gemini-3.8-flash');
+    });
+
+    it('detects model unavailable errors and extracts recommendations', () => {
+      const err = new Error(
+        'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements.'
+      );
+      expect(isModelUnavailableError(err)).toBe(true);
+      expect(extractRecommendedModel(err)).toBe('gemini-3.8-flash');
+    });
+
+    it('sanitizes sensitive API keys and tokens from error messages', () => {
+      const raw = 'Failed with AIzaSyD1234567890abcdefghijklmnopqrstuv and key=secret123';
+      const sanitized = sanitizeErrorMessage(new Error(raw));
+      expect(sanitized).not.toContain('AIzaSyD1234567890abcdefghijklmnopqrstuv');
+      expect(sanitized).toContain('[REDACTED_KEY]');
+      expect(sanitized).toContain('key=[REDACTED]');
+    });
+
+    it('automatically falls back to recommended model when configured model returns 404', async () => {
+      const deprecationErr = new Error(
+        'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements.'
+      );
+      mockGenerateContent
+        .mockRejectedValueOnce(deprecationErr)
+        .mockResolvedValueOnce({ text: 'Advice from gemini-3.8-flash' });
+
+      const text = await generateText('Advise shop');
+      expect(text).toBe('Advice from gemini-3.8-flash');
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      expect(mockGenerateContent).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          model: 'gemini-3.8-flash',
+        })
+      );
     });
   });
 });
